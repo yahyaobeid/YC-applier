@@ -210,3 +210,7 @@ __marimo__/
 data/browser_session/
 resume/resume.pdf
 data/applied_jobs.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
