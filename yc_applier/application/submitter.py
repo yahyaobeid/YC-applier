@@ -20,18 +20,25 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Selectors — verify against live site before using
 # ---------------------------------------------------------------------------
-# The application textarea on each job page
+# "Apply" opener — an <a> tag that reveals the application textarea
+_APPLY_BUTTON_SELECTORS = [
+    "a:has-text('Apply')",
+    "button:has-text('Apply')",
+]
+
+# The application textarea (visible after clicking Apply)
 _TEXTAREA_SELECTORS = [
-    "textarea[name='intro']",
-    "textarea[placeholder*='yourself']",
-    "textarea[placeholder*='application']",
+    "textarea[placeholder*='My name is']",
+    "textarea[placeholder*='name is']",
+    "textarea[rows='7']",
     "textarea",                           # last resort: first textarea on page
 ]
 
-# The submit button for the application form
+# The submit button inside the expanded form
 _SUBMIT_BUTTON_SELECTORS = [
     "button[type='submit']:has-text('Apply')",
     "button:has-text('Submit application')",
+    "button:has-text('Submit')",
     "button:has-text('Apply')",
     "input[type='submit']",
 ]
@@ -41,14 +48,27 @@ _SUCCESS_SELECTORS = [
     "[data-testid='application-success']",
     "text=Application submitted",
     "text=applied successfully",
+    "text=Applied",
     ".success-message",
 ]
+
+
+def _open_apply_form(page) -> bool:
+    """Click the Apply button to reveal the application textarea."""
+    for sel in _APPLY_BUTTON_SELECTORS:
+        try:
+            page.click(sel, timeout=5_000)
+            logger.debug("Clicked Apply opener using selector: %s", sel)
+            return True
+        except PWTimeoutError:
+            continue
+    return False
 
 
 def _find_and_fill_textarea(page, text: str) -> bool:
     for sel in _TEXTAREA_SELECTORS:
         try:
-            page.wait_for_selector(sel, timeout=4_000)
+            page.wait_for_selector(sel, timeout=5_000)
             page.fill(sel, text)
             logger.debug("Filled textarea using selector: %s", sel)
             return True
@@ -102,6 +122,12 @@ def submit_applications(
         try:
             page.goto(job.url, wait_until="networkidle")
             page.wait_for_timeout(1_500)
+
+            # Click the Apply <a> button to reveal the textarea
+            if not _open_apply_form(page):
+                logger.warning("Could not find Apply button on %s — trying textarea directly.", job.url)
+
+            page.wait_for_timeout(1_000)
 
             if not _find_and_fill_textarea(page, draft.draft_paragraph):
                 logger.error(
