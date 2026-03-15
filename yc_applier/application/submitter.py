@@ -99,7 +99,7 @@ def _extract_recruiter_name(page) -> str:
 def _build_email(body: str, recruiter_name: str, user_name: str = "", user_linkedin: str = "") -> str:
     """Wrap the AI-generated body with a greeting and sign-off."""
     first_name = recruiter_name.split()[0] if recruiter_name else ""
-    greeting = f"Hi {first_name}," if first_name else "Hello,,"
+    greeting = f"Hi {first_name}," if first_name else "Hello,"
     sign_off_lines = ["Best Regards,", user_name] if user_name else ["Best Regards,"]
     if user_linkedin:
         sign_off_lines.append(user_linkedin)
