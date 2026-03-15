@@ -28,7 +28,7 @@ def _do_login(page: Page, email: str, password: str) -> None:
     logger.info("Logging in as %s …", email)
     page.goto(_LOGIN_URL, wait_until="networkidle")
 
-    page.fill("input[type='email'], input[name='email']", email)
+    page.fill("input[name='username'], input[id='ycid-input']", email)
     page.fill("input[type='password'], input[name='password']", password)
     page.click("button[type='submit']")
 
