@@ -10,7 +10,8 @@ from yc_applier.scraper.models import Job
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-haiku-4-5-20251001"
+_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
+_OPENAI_MODEL = "gpt-4o-mini"
 _MAX_TOKENS = 300
 _CONCURRENCY = 5
 
@@ -21,10 +22,11 @@ _CONCURRENCY = 5
     reraise=True,
 )
 async def _score_job(
-    client: anthropic.AsyncAnthropic,
+    client,
     job: Job,
     resume_text: str,
     sem: asyncio.Semaphore,
+    provider: str,
 ) -> tuple[Job, int, str]:
     user_prompt = MATCHING_USER.format(
         resume_text=resume_text,
@@ -38,15 +40,27 @@ async def _score_job(
     )
 
     async with sem:
-        response = await client.messages.create(
-            model=_MODEL,
-            max_tokens=_MAX_TOKENS,
-            temperature=0,
-            system=MATCHING_SYSTEM,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        if provider == "openai":
+            response = await client.chat.completions.create(
+                model=_OPENAI_MODEL,
+                max_tokens=_MAX_TOKENS,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": MATCHING_SYSTEM},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            raw = response.choices[0].message.content.strip()
+        else:
+            response = await client.messages.create(
+                model=_ANTHROPIC_MODEL,
+                max_tokens=_MAX_TOKENS,
+                temperature=0,
+                system=MATCHING_SYSTEM,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            raw = response.content[0].text.strip()
 
-    raw = response.content[0].text.strip()
     try:
         data = json.loads(raw)
         score = int(data["score"])
@@ -64,12 +78,17 @@ async def score_jobs(
     resume_text: str,
     min_score: int,
     api_key: str,
+    provider: str = "anthropic",
 ) -> list[tuple[Job, int, str]]:
     """Score all jobs concurrently and return those meeting min_score."""
-    client = anthropic.AsyncAnthropic(api_key=api_key)
+    if provider == "openai":
+        import openai
+        client = openai.AsyncOpenAI(api_key=api_key)
+    else:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
     sem = asyncio.Semaphore(_CONCURRENCY)
 
-    tasks = [_score_job(client, job, resume_text, sem) for job in jobs]
+    tasks = [_score_job(client, job, resume_text, sem, provider) for job in jobs]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     scored = []

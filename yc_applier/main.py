@@ -45,19 +45,30 @@ def run(
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Scrape + score + draft, skip submission.")] = False,
     no_review: Annotated[bool, typer.Option("--no-review", help="Skip interactive review; only auto-apply.")] = False,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+    ai_provider: Annotated[str, typer.Option("--ai-provider", help="AI provider to use: 'anthropic' or 'openai'.")] = "anthropic",
 ) -> None:
     """Run the full YC job application pipeline."""
     _setup_logging(verbose)
     cfg = _load_settings()
 
+    if ai_provider not in ("anthropic", "openai"):
+        console.print("[red]--ai-provider must be 'anthropic' or 'openai'[/red]")
+        raise typer.Exit(1)
+
     # Env vars
     email = os.environ.get("YC_EMAIL", "")
     password = os.environ.get("YC_PASSWORD", "")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
-    if not api_key:
-        console.print("[red]ANTHROPIC_API_KEY not set in environment / .env[/red]")
-        raise typer.Exit(1)
+    if ai_provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            console.print("[red]OPENAI_API_KEY not set in environment / .env[/red]")
+            raise typer.Exit(1)
+    else:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            console.print("[red]ANTHROPIC_API_KEY not set in environment / .env[/red]")
+            raise typer.Exit(1)
     if not dry_run and (not email or not password):
         console.print("[red]YC_EMAIL and YC_PASSWORD must be set for live runs.[/red]")
         raise typer.Exit(1)
@@ -101,10 +112,10 @@ def run(
             console.print("[yellow]No new jobs found. Exiting.[/yellow]")
             return
 
-        # 4. Score jobs with Claude Haiku
-        console.print("[bold]Scoring jobs with Claude…[/bold]")
+        # 4. Score jobs with AI
+        console.print(f"[bold]Scoring jobs with {ai_provider}…[/bold]")
         scored = asyncio.run(
-            _score_jobs_async(jobs, resume_text, cfg["matching"]["min_match_score"], api_key)
+            _score_jobs_async(jobs, resume_text, cfg["matching"]["min_match_score"], api_key, ai_provider)
         )
         console.print(f"[cyan]{len(scored)}[/cyan] jobs passed the match threshold "
                       f"(≥{cfg['matching']['min_match_score']}).")
@@ -116,7 +127,7 @@ def run(
         # 5. Draft application paragraphs
         from yc_applier.ai.drafter import draft_applications
         console.print("[bold]Drafting application paragraphs…[/bold]")
-        drafts = draft_applications(scored, resume_text, api_key)
+        drafts = draft_applications(scored, resume_text, api_key, ai_provider)
 
         # 6. Review
         from yc_applier.application.reviewer import review_drafts
@@ -159,9 +170,9 @@ def run(
     console.print("[bold green]Done![/bold green]")
 
 
-async def _score_jobs_async(jobs, resume_text, min_score, api_key):
+async def _score_jobs_async(jobs, resume_text, min_score, api_key, provider="anthropic"):
     from yc_applier.ai.matcher import score_jobs
-    return await score_jobs(jobs, resume_text, min_score, api_key)
+    return await score_jobs(jobs, resume_text, min_score, api_key, provider)
 
 
 # ---------------------------------------------------------------------------
