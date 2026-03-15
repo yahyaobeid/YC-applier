@@ -15,8 +15,9 @@ from yc_applier.scraper.models import Company, Job
 
 logger = logging.getLogger(__name__)
 
-_JOBS_URL = "https://www.workatastartup.com/jobs"
+_JOBS_URL = "https://www.workatastartup.com/companies"
 _ALGOLIA_HOST = "algolia.net"
+_WAAS_API_HOST = "workatastartup.com"
 
 # Set to True to use DOM parsing instead of Algolia interception.
 USE_DOM_FALLBACK = False
@@ -30,6 +31,7 @@ def _is_algolia_response(response: Response) -> bool:
 
 
 def _parse_algolia_hit(hit: dict[str, Any]) -> Job | None:
+    """Parse a flat Algolia job hit."""
     try:
         company_data = hit.get("company", {})
         company = Company(
@@ -53,7 +55,7 @@ def _parse_algolia_hit(hit: dict[str, Any]) -> Job | None:
             role_type=hit.get("role_type", hit.get("type", "")),
             description=hit.get("job_description", hit.get("description", "")),
             requirements=hit.get("requirements", ""),
-            location=hit.get("location", ""),
+            location=hit.get("location") or "",
             remote=bool(hit.get("remote") or hit.get("remote_ok")),
             scraped_at=datetime.now(timezone.utc),
         )
@@ -62,22 +64,83 @@ def _parse_algolia_hit(hit: dict[str, Any]) -> Job | None:
         return None
 
 
+def _parse_company_fetch(company: dict[str, Any]) -> list[Job]:
+    """Parse jobs from a /companies/fetch response item (company with nested jobs)."""
+    results = []
+    nested_jobs = company.get("jobs")
+    if not nested_jobs or not isinstance(nested_jobs, list):
+        return results
+
+    co = Company(
+        id=str(company.get("id", "unknown")),
+        name=company.get("name", ""),
+        batch=company.get("batch", ""),
+        description=company.get("one_liner", company.get("description", "")),
+        industry=company.get("primary_vertical", company.get("parent_sector", "")),
+        website=company.get("website_url") or company.get("website"),
+    )
+
+    for job in nested_jobs:
+        try:
+            job_id = str(job.get("id", ""))
+            slug = job.get("slug", job_id)
+            url = f"https://www.workatastartup.com/jobs/{slug}"
+            remote_val = job.get("remote") or job.get("remote_ok") or job.get("location_type") == "remote"
+            results.append(Job(
+                id=job_id,
+                url=url,
+                title=job.get("title", ""),
+                company=co,
+                role_type=job.get("role_type", job.get("type", "")),
+                description=job.get("job_description", job.get("description", "")),
+                requirements=job.get("requirements", ""),
+                location=job.get("location") or company.get("pretty_location") or "",
+                remote=bool(remote_val),
+                scraped_at=datetime.now(timezone.utc),
+            ))
+        except Exception as exc:
+            logger.warning("Skipping malformed job in company %s: %s", co.name, exc)
+
+    return results
+
+
 def _collect_algolia_jobs(page: Page, filters: dict) -> list[Job]:
-    """Navigate the jobs page with role filters and collect Algolia hits."""
-    collected_hits: list[dict] = []
+    """Navigate the jobs page with role filters and collect job data from API responses."""
+    collected_jobs_raw: list[dict] = []
 
     def handle_response(response: Response) -> None:
-        if not _is_algolia_response(response):
+        url = response.url
+        if response.status != 200:
             return
         try:
-            body = response.json()
-            # Multi-query responses wrap results in a "results" array
-            result_list = body.get("results", [body])
-            for result in result_list:
-                hits = result.get("hits", [])
-                collected_hits.extend(hits)
+            # Intercept Algolia responses for job hits
+            if _ALGOLIA_HOST in url:
+                body = response.json()
+                result_list = body.get("results", [body])
+                for result in result_list:
+                    hits = result.get("hits", [])
+                    # Only use hits that have real job data (not just IDs)
+                    if hits and len(hits[0].keys()) > 3:
+                        collected_jobs_raw.extend(hits)
+                return
+
+            # Intercept workatastartup.com responses for job/company data
+            if _WAAS_API_HOST in url and response.headers.get("content-type", "").startswith("application/json"):
+                body = response.json()
+                # Handle various response shapes
+                if isinstance(body, list):
+                    candidates = body
+                elif isinstance(body, dict):
+                    candidates = (body.get("jobs") or body.get("companies") or
+                                  body.get("data") or body.get("results") or [])
+                    if not isinstance(candidates, list):
+                        candidates = [body]
+                else:
+                    return
+                if candidates:
+                    collected_jobs_raw.extend(candidates)
         except Exception as exc:
-            logger.debug("Non-JSON Algolia response ignored: %s", exc)
+            logger.debug("Response parse error (%s): %s", url, exc)
 
     page.on("response", handle_response)
 
@@ -114,17 +177,22 @@ def _collect_algolia_jobs(page: Page, filters: dict) -> list[Job]:
             except Exception:
                 continue
 
-    # Wait for Algolia to respond after filters are applied
+    # Wait for API responses after filters are applied
     page.wait_for_timeout(3_000)
-    page.off("response", handle_response)
+    page.remove_listener("response", handle_response)
 
     jobs: list[Job] = []
     seen: set[str] = set()
-    for hit in collected_hits:
-        job = _parse_algolia_hit(hit)
-        if job and job.id not in seen:
-            seen.add(job.id)
-            jobs.append(job)
+    for item in collected_jobs_raw:
+        # /companies/fetch returns company objects with nested jobs
+        if "jobs" in item and isinstance(item.get("jobs"), list):
+            parsed = _parse_company_fetch(item)
+        else:
+            parsed = [j for j in [_parse_algolia_hit(item)] if j]
+        for job in parsed:
+            if job.id not in seen:
+                seen.add(job.id)
+                jobs.append(job)
 
     return jobs
 

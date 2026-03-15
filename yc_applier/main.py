@@ -1,6 +1,7 @@
 """CLI entry point for yc-applier."""
 
 import asyncio
+import concurrent.futures
 import logging
 import os
 import sys
@@ -113,10 +114,13 @@ def run(
             return
 
         # 4. Score jobs with AI
+        # Run in a thread because Playwright 1.58+ holds an asyncio loop on the main thread
         console.print(f"[bold]Scoring jobs with {ai_provider}…[/bold]")
-        scored = asyncio.run(
-            _score_jobs_async(jobs, resume_text, cfg["matching"]["min_match_score"], api_key, ai_provider)
-        )
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            scored = pool.submit(
+                _run_scoring_sync, jobs, resume_text,
+                cfg["matching"]["min_match_score"], api_key, ai_provider
+            ).result()
         console.print(f"[cyan]{len(scored)}[/cyan] jobs passed the match threshold "
                       f"(≥{cfg['matching']['min_match_score']}).")
 
@@ -168,6 +172,17 @@ def run(
         context.close()
 
     console.print("[bold green]Done![/bold green]")
+
+
+def _run_scoring_sync(jobs, resume_text, min_score, api_key, provider="anthropic"):
+    """Run async scoring in a fresh event loop (called from a worker thread)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        from yc_applier.ai.matcher import score_jobs
+        return loop.run_until_complete(score_jobs(jobs, resume_text, min_score, api_key, provider))
+    finally:
+        loop.close()
 
 
 async def _score_jobs_async(jobs, resume_text, min_score, api_key, provider="anthropic"):
