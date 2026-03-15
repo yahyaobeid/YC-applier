@@ -5,39 +5,70 @@ AI agent that automates job applications on [workatastartup.com](https://www.wor
 ## What it does
 
 1. **Scrapes** matching jobs (Full Stack / Backend / ML) via Algolia API interception
-2. **Scores** each job against your resume using Claude Haiku (fast, cheap)
-3. **Drafts** a personalised application paragraph using Claude Sonnet (quality)
-4. **Reviews** drafts interactively — or auto-submits above a confidence threshold
+2. **Scores** each job against your resume using Claude Haiku or GPT-4o-mini (fast, cheap)
+3. **Drafts** a personalised application paragraph using Claude Sonnet or GPT-4o (quality)
+4. **Reviews** drafts in a web UI — approve, edit, or skip before submission
 5. **Submits** the application form via Playwright and logs every attempt
 
 ---
 
 ## Quick start
 
+### 1. Install Python dependencies
+
 ```bash
-# 1. Install dependencies
 pip install -e ".[dev]"
-
-# 2. Install Playwright browser
 playwright install chromium
-
-# 3. Configure credentials
-cp .env.example .env
-# edit .env — set YC_EMAIL, YC_PASSWORD, ANTHROPIC_API_KEY
-
-# 4. Drop your resume
-cp ~/Downloads/resume.pdf resume/resume.pdf
-
-# 5. Dry run (no submission)
-yc-apply run --dry-run
-
-# 6. Full run with interactive review
-yc-apply run
 ```
+
+### 2. Configure credentials
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```
+YC_EMAIL=you@example.com
+YC_PASSWORD=yourpassword
+ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY=sk-...
+```
+
+### 3. Drop your resume
+
+```bash
+cp ~/Downloads/resume.pdf resume/resume.pdf
+```
+
+### 4. Start the web UI
+
+```bash
+# Terminal 1 — API server
+uvicorn api.main:app --reload
+
+# Terminal 2 — Frontend dev server
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
-## CLI commands
+## Web UI pages
+
+| Page | Description |
+|---|---|
+| **Dashboard** | Stats overview, recent applications, quick-start button |
+| **Pipeline** | Run the scrape → score → draft pipeline with live progress log |
+| **Review** | Approve, edit, or skip generated drafts before submission |
+| **Applications** | Full audit log with search and status filter |
+
+---
+
+## CLI commands (alternative to web UI)
 
 | Command | Description |
 |---|---|
@@ -70,16 +101,14 @@ behavior:
 
 ---
 
-## ⚠️ Before submitting real applications
+## AI providers
 
-The form selectors in `yc_applier/application/submitter.py` are best-guess approximations.
+Both Anthropic and OpenAI are supported. Select the provider in the web UI or set `ai_provider` in settings.
 
-1. Log into workatastartup.com in a browser
-2. Navigate to a job listing and open DevTools
-3. Inspect the application textarea and submit button
-4. Update `_TEXTAREA_SELECTORS` and `_SUBMIT_BUTTON_SELECTORS` in `submitter.py`
-
-Same applies to the Algolia filter selectors in `scraper/jobs.py` — verify with live network inspection.
+| Provider | Scoring model | Drafting model |
+|---|---|---|
+| `anthropic` (default) | claude-haiku-4-5 | claude-sonnet-4-6 |
+| `openai` | gpt-4o-mini | gpt-4o |
 
 ---
 
@@ -87,4 +116,15 @@ Same applies to the Algolia filter selectors in `scraper/jobs.py` — verify wit
 
 ```bash
 pytest tests/
+```
+
+---
+
+## Production build
+
+```bash
+cd frontend
+npm run build       # outputs to frontend/dist/
+# FastAPI automatically serves frontend/dist/ as static files
+uvicorn api.main:app
 ```
