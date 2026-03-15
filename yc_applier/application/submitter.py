@@ -36,6 +36,7 @@ _TEXTAREA_SELECTORS = [
 
 # The submit button inside the expanded form
 _SUBMIT_BUTTON_SELECTORS = [
+    "button:has-text('Send')",
     "button[type='submit']:has-text('Apply')",
     "button:has-text('Submit application')",
     "button:has-text('Submit')",
@@ -69,7 +70,21 @@ def _find_and_fill_textarea(page, text: str) -> bool:
     for sel in _TEXTAREA_SELECTORS:
         try:
             page.wait_for_selector(sel, timeout=5_000)
-            page.fill(sel, text)
+            # Use the native HTMLTextAreaElement value setter so React's
+            # synthetic onChange fires and controlled-component state updates.
+            page.evaluate(
+                """([selector, value]) => {
+                    const el = document.querySelector(selector);
+                    if (!el) return;
+                    const setter = Object.getOwnPropertyDescriptor(
+                        window.HTMLTextAreaElement.prototype, 'value'
+                    ).set;
+                    setter.call(el, value);
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }""",
+                [sel, text],
+            )
             logger.debug("Filled textarea using selector: %s", sel)
             return True
         except PWTimeoutError:
@@ -80,6 +95,9 @@ def _find_and_fill_textarea(page, text: str) -> bool:
 def _click_submit(page) -> bool:
     for sel in _SUBMIT_BUTTON_SELECTORS:
         try:
+            # Wait for the button to be visible AND enabled (React may keep it
+            # disabled until the textarea has content).
+            page.wait_for_selector(f"{sel}:not([disabled])", timeout=5_000)
             page.click(sel, timeout=4_000)
             logger.debug("Clicked submit using selector: %s", sel)
             return True
