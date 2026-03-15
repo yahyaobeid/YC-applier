@@ -124,7 +124,7 @@ def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event)
     session_dir = _PROJECT_ROOT / "data" / "browser_session"
     tracker = ApplicationTracker(log_path)
 
-    draft_objects = []
+    draft_tuples = []
     for d in approved_drafts_data:
         company = Company(
             id=d.get("company_name", "unknown"),
@@ -152,13 +152,13 @@ def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event)
             draft_paragraph=d["draft_paragraph"],
             status="approved",
         )
-        draft_objects.append(draft)
+        draft_tuples.append((draft, d.get("user_name", ""), d.get("user_linkedin", "")))
 
-    push_event("progress", f"Submitting {len(draft_objects)} application(s)...")
+    push_event("progress", f"Submitting {len(draft_tuples)} application(s)...")
     with sync_playwright() as pw:
         context = get_authenticated_context(pw, email, password, session_dir)
         submit_applications(
-            drafts=draft_objects,
+            drafts=draft_tuples,
             context=context,
             tracker=tracker,
             delay_seconds=cfg["behavior"]["application_delay_seconds"],

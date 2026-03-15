@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 function ScoreBadge({ score }) {
   const cls =
@@ -30,13 +30,21 @@ function StatusPill({ status }) {
   )
 }
 
-function DraftCard({ draft, onApprove, onEdit, onSkip }) {
+function DraftCard({ draft, onApprove, onEdit, onSkip, userInfo }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(draft.draft_paragraph)
 
   const handleSave = () => {
     onEdit(draft.id, text)
     setEditing(false)
+  }
+
+  const handleApproveClick = () => {
+    if (!userInfo.name || !userInfo.linkedin) {
+      userInfo.focusInfo()
+      return
+    }
+    onApprove(draft.id)
   }
 
   const isActionable = draft.status !== 'submitted'
@@ -134,7 +142,7 @@ function DraftCard({ draft, onApprove, onEdit, onSkip }) {
           </a>
           {draft.status !== 'approved' && (
             <button
-              onClick={() => onApprove(draft.id)}
+              onClick={handleApproveClick}
               className="bg-green-500 hover:bg-green-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium transition-colors"
             >
               Approve
@@ -166,6 +174,21 @@ export default function Review() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [submitMsg, setSubmitMsg] = useState('')
+  const [userName, setUserName] = useState(() => localStorage.getItem('yc_user_name') || '')
+  const [userLinkedin, setUserLinkedin] = useState(() => localStorage.getItem('yc_user_linkedin') || '')
+  const [infoError, setInfoError] = useState(false)
+  const nameRef = useRef(null)
+
+  const saveUserInfo = (name, linkedin) => {
+    localStorage.setItem('yc_user_name', name)
+    localStorage.setItem('yc_user_linkedin', linkedin)
+  }
+
+  const focusInfo = () => {
+    setInfoError(true)
+    nameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    nameRef.current?.focus()
+  }
 
   const loadDrafts = () => {
     fetch('/api/drafts')
@@ -182,7 +205,11 @@ export default function Review() {
   }, [])
 
   const handleApprove = async (id) => {
-    await fetch(`/api/drafts/${id}/approve`, { method: 'POST' })
+    await fetch(`/api/drafts/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_name: userName, user_linkedin: userLinkedin }),
+    })
     setDrafts((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'approved' } : d)))
   }
 
@@ -190,7 +217,7 @@ export default function Review() {
     await fetch(`/api/drafts/${id}/edit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ draft_paragraph: text }),
+      body: JSON.stringify({ draft_paragraph: text, user_name: userName, user_linkedin: userLinkedin }),
     })
     setDrafts((prev) =>
       prev.map((d) => (d.id === id ? { ...d, draft_paragraph: text, status: 'approved' } : d))
@@ -240,8 +267,43 @@ export default function Review() {
     )
   }
 
+  const userInfo = { name: userName, linkedin: userLinkedin, focusInfo }
+
   return (
     <div className="p-8">
+      {/* Your Info panel */}
+      <div className={`mb-6 bg-white rounded-xl shadow-sm border-2 p-5 ${infoError && (!userName || !userLinkedin) ? 'border-red-300' : 'border-gray-100'}`}>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+          Your Info <span className="text-gray-300 normal-case font-normal">(appended to every application)</span>
+        </p>
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <label className="text-xs text-gray-500 block mb-1">Full Name</label>
+            <input
+              ref={nameRef}
+              type="text"
+              value={userName}
+              onChange={(e) => { setUserName(e.target.value); setInfoError(false); saveUserInfo(e.target.value, userLinkedin) }}
+              placeholder="Jane Smith"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs text-gray-500 block mb-1">LinkedIn URL</label>
+            <input
+              type="text"
+              value={userLinkedin}
+              onChange={(e) => { setUserLinkedin(e.target.value); setInfoError(false); saveUserInfo(userName, e.target.value) }}
+              placeholder="https://linkedin.com/in/yourname"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+            />
+          </div>
+        </div>
+        {infoError && (!userName || !userLinkedin) && (
+          <p className="text-xs text-red-500 mt-2">Please fill in your name and LinkedIn URL before approving.</p>
+        )}
+      </div>
+
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -328,6 +390,7 @@ export default function Review() {
               onApprove={handleApprove}
               onEdit={handleEdit}
               onSkip={handleSkip}
+              userInfo={userInfo}
             />
           ))}
         </div>

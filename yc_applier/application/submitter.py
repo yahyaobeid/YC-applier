@@ -70,9 +70,6 @@ _RECRUITER_NAME_SELECTORS = [
     "[class*='apply'] img[alt]",
 ]
 
-_SIGN_OFF = "Best Regards,\nYahya Obeid\nhttps://linkedin.com/in/yahyaobeid"
-
-
 def _extract_recruiter_name(page) -> str:
     """Try to find the recruiter/founder name visible in the Apply form."""
     for sel in _RECRUITER_NAME_SELECTORS:
@@ -99,11 +96,15 @@ def _extract_recruiter_name(page) -> str:
     return ""
 
 
-def _build_email(body: str, recruiter_name: str) -> str:
+def _build_email(body: str, recruiter_name: str, user_name: str = "", user_linkedin: str = "") -> str:
     """Wrap the AI-generated body with a greeting and sign-off."""
     first_name = recruiter_name.split()[0] if recruiter_name else ""
     greeting = f"Hi {first_name}," if first_name else "Hi there,"
-    return f"{greeting}\n\n{body}\n\n{_SIGN_OFF}"
+    sign_off_lines = ["Best Regards,", user_name] if user_name else ["Best Regards,"]
+    if user_linkedin:
+        sign_off_lines.append(user_linkedin)
+    sign_off = "\n".join(sign_off_lines)
+    return f"{greeting}\n\n{body}\n\n{sign_off}"
 
 
 def _open_apply_form(page) -> bool:
@@ -170,19 +171,19 @@ def _wait_for_success(page) -> bool:
 
 
 def submit_applications(
-    drafts: list[ApplicationDraft],
+    drafts: list[tuple],   # (ApplicationDraft, user_name: str, user_linkedin: str)
     context: BrowserContext,
     tracker: ApplicationTracker,
     delay_seconds: int = 30,
     dry_run: bool = False,
 ) -> None:
     """Submit each approved draft and record in the tracker."""
-    for draft in drafts:
+    for draft, user_name, user_linkedin in drafts:
         job = draft.job
         logger.info("Submitting application: %s @ %s", job.title, job.company.name)
 
         if dry_run:
-            email_preview = _build_email(draft.draft_paragraph, "")
+            email_preview = _build_email(draft.draft_paragraph, "", user_name, user_linkedin)
             logger.info("[DRY RUN] Would submit to %s\n%s", job.url, email_preview)
             draft.status = "submitted"
             draft.submitted_at = datetime.now(timezone.utc)
@@ -205,7 +206,7 @@ def submit_applications(
                 logger.info("Recruiter name found: %s", recruiter_name)
             else:
                 logger.info("No recruiter name found — using generic greeting")
-            email_text = _build_email(draft.draft_paragraph, recruiter_name)
+            email_text = _build_email(draft.draft_paragraph, recruiter_name, user_name, user_linkedin)
 
             if not _find_and_fill_textarea(page, email_text):
                 logger.error(
