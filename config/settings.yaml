@@ -2,6 +2,8 @@ filters:
   roles: ["Full Stack", "Backend", "ML"]
   remote_only: true
   excluded_industries: []
+  location_preferences: []   # e.g. ["San Francisco", "New York"] — empty means any location
+  keywords: []               # e.g. ["React", "Python", "ML"] — empty means no keyword filter
 
 matching:
   min_match_score: 70        # skip jobs below this

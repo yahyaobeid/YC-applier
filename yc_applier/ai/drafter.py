@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 _ANTHROPIC_MODEL = "claude-sonnet-4-6"
 _OPENAI_MODEL = "gpt-4o"
-_MAX_TOKENS = 250
+_MAX_TOKENS = 350
 
 
 @retry(

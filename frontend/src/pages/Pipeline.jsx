@@ -15,6 +15,8 @@ export default function Pipeline() {
   const [progress, setProgress] = useState([])
   const [dryRun, setDryRun] = useState(false)
   const [aiProvider, setAiProvider] = useState('anthropic')
+  const [locationPrefs, setLocationPrefs] = useState('')
+  const [keywords, setKeywords] = useState('')
   const [starting, setStarting] = useState(false)
   const logRef = useRef(null)
   const esRef = useRef(null)
@@ -71,7 +73,16 @@ export default function Pipeline() {
       const res = await fetch('/api/pipeline/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dry_run: dryRun, ai_provider: aiProvider }),
+        body: JSON.stringify({
+        dry_run: dryRun,
+        ai_provider: aiProvider,
+        location_preferences: locationPrefs
+          ? locationPrefs.split(',').map((s) => s.trim()).filter(Boolean)
+          : null,
+        keywords: keywords
+          ? keywords.split(',').map((s) => s.trim()).filter(Boolean)
+          : null,
+      }),
       })
       const data = await res.json()
       if (data.error || !res.ok) throw new Error(data.detail || data.error || 'Failed to start')
@@ -138,6 +149,36 @@ export default function Pipeline() {
                 <option value="anthropic">Anthropic (Claude)</option>
                 <option value="openai">OpenAI (GPT-4o)</option>
               </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Keywords
+              </label>
+              <input
+                type="text"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                disabled={!canStart}
+                placeholder="React, Python, ML..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+              <p className="text-xs text-gray-400 mt-1">Comma-separated. Empty = no filter.</p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">
+                Location Preferences
+              </label>
+              <input
+                type="text"
+                value={locationPrefs}
+                onChange={(e) => setLocationPrefs(e.target.value)}
+                disabled={!canStart}
+                placeholder="San Francisco, New York..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+              <p className="text-xs text-gray-400 mt-1">Comma-separated. Remote jobs always included.</p>
             </div>
 
             <div className="flex items-center justify-between">

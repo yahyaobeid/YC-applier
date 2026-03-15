@@ -49,17 +49,23 @@ Requirements:
 # ---------------------------------------------------------------------------
 
 DRAFTING_SYSTEM = """\
-You are helping a software engineer write a compelling job application paragraph.
+You are helping a software engineer write the body of a job application email. \
+The greeting and sign-off will be added separately — write only the body.
+
+Tone: casual-professional. Sound like a real person writing a genuine email, \
+not a cover letter template. Friendly but competent.
 
 Rules:
 - Write in first person
-- 3–5 sentences, no more
-- Reference specific experiences or skills from the resume that are directly \
-  relevant to this role — be concrete, not generic
-- Never use clichéd phrases like "I am passionate about", "team player", \
-  "fast learner", or "I would be a great fit"
-- End with one sentence about why this specific company excites you
-- Output plain text only — no bullet points, no markdown, no headers
+- 3–5 sentences
+- Mention 1–2 specific things from your background that are directly relevant \
+  to this role — concrete details, not vague claims
+- Mention something specific about the company or role that genuinely interests you
+- Avoid all buzzwords and clichés: "passionate", "team player", "fast learner", \
+  "I would be a great fit", "I am excited to apply", "leverage", "synergy"
+- No filler sentences — every sentence should add real information
+- Output plain text only — no bullet points, no markdown, no headers, no greeting, \
+  no sign-off
 """
 
 DRAFTING_USER = """\
@@ -80,5 +86,6 @@ Job description:
 
 ---
 
-Write a 3–5 sentence application paragraph for this role.
+Write 3–5 sentences for the body of my application email. \
+Do not include a greeting or sign-off — just the body.
 """

@@ -53,6 +53,58 @@ _SUCCESS_SELECTORS = [
     ".success-message",
 ]
 
+# Selectors for the recruiter/founder name shown in the application form.
+# These are tried in order; first match wins.
+_RECRUITER_NAME_SELECTORS = [
+    # "Send a message to John Smith" / "Message John Smith" headings
+    ".application-form h3",
+    ".application-form h2",
+    "[class*='apply'] h3",
+    "[class*='apply'] h2",
+    # Name next to founder avatar in the Apply panel
+    "[class*='founder'] [class*='name']",
+    "[class*='recruiter'] [class*='name']",
+    "[class*='contact'] [class*='name']",
+    # Image alt text — WaaS often renders "<img alt='Jane Doe'>" for the recruiter
+    ".application-form img[alt]",
+    "[class*='apply'] img[alt]",
+]
+
+_SIGN_OFF = "Best Regards,\nYahya Obeid\nhttps://linkedin.com/in/yahyaobeid"
+
+
+def _extract_recruiter_name(page) -> str:
+    """Try to find the recruiter/founder name visible in the Apply form."""
+    for sel in _RECRUITER_NAME_SELECTORS:
+        try:
+            el = page.query_selector(sel)
+            if not el:
+                continue
+            # For <img> elements use the alt attribute; otherwise inner text
+            tag = page.evaluate("el => el.tagName.toLowerCase()", el)
+            if tag == "img":
+                name = page.evaluate("el => el.getAttribute('alt')", el) or ""
+            else:
+                name = el.inner_text().strip()
+            # Strip common prefixes like "Message John" → "John", "Apply to John" → "John"
+            for prefix in ("send a message to ", "message to ", "message ", "apply to ", "contact "):
+                if name.lower().startswith(prefix):
+                    name = name[len(prefix):]
+            name = name.strip()
+            if name and len(name) < 60:   # sanity check — avoid grabbing paragraphs
+                logger.debug("Found recruiter name: %s (selector: %s)", name, sel)
+                return name
+        except Exception:
+            continue
+    return ""
+
+
+def _build_email(body: str, recruiter_name: str) -> str:
+    """Wrap the AI-generated body with a greeting and sign-off."""
+    first_name = recruiter_name.split()[0] if recruiter_name else ""
+    greeting = f"Hi {first_name}," if first_name else "Hi there,"
+    return f"{greeting}\n\n{body}\n\n{_SIGN_OFF}"
+
 
 def _open_apply_form(page) -> bool:
     """Click the Apply button to reveal the application textarea."""
@@ -130,7 +182,8 @@ def submit_applications(
         logger.info("Submitting application: %s @ %s", job.title, job.company.name)
 
         if dry_run:
-            logger.info("[DRY RUN] Would submit to %s", job.url)
+            email_preview = _build_email(draft.draft_paragraph, "")
+            logger.info("[DRY RUN] Would submit to %s\n%s", job.url, email_preview)
             draft.status = "submitted"
             draft.submitted_at = datetime.now(timezone.utc)
             tracker.record_application(draft)
@@ -147,7 +200,14 @@ def submit_applications(
 
             page.wait_for_timeout(1_000)
 
-            if not _find_and_fill_textarea(page, draft.draft_paragraph):
+            recruiter_name = _extract_recruiter_name(page)
+            if recruiter_name:
+                logger.info("Recruiter name found: %s", recruiter_name)
+            else:
+                logger.info("No recruiter name found — using generic greeting")
+            email_text = _build_email(draft.draft_paragraph, recruiter_name)
+
+            if not _find_and_fill_textarea(page, email_text):
                 logger.error(
                     "Could not find application textarea on %s — skipping. "
                     "Update _TEXTAREA_SELECTORS after inspecting the live page.",

@@ -172,6 +172,8 @@ def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event)
 class StartPipelineRequest(BaseModel):
     dry_run: bool = False
     ai_provider: str = "anthropic"
+    location_preferences: list[str] | None = None  # overrides settings.yaml if provided
+    keywords: list[str] | None = None              # overrides settings.yaml if provided
 
 
 class SubmitRequest(BaseModel):
@@ -191,6 +193,12 @@ async def start_pipeline(req: StartPipelineRequest):
         pipeline_state.error = None
 
     config = _load_settings()
+    # Apply runtime overrides for filters
+    if req.location_preferences is not None:
+        config["filters"]["location_preferences"] = req.location_preferences
+    if req.keywords is not None:
+        config["filters"]["keywords"] = req.keywords
+
     email = os.environ.get("YC_EMAIL", "")
     password = os.environ.get("YC_PASSWORD", "")
     api_key = (

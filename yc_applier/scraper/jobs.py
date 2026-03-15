@@ -275,6 +275,9 @@ def scrape_jobs(
         page.close()
 
     # Post-filter
+    keywords = [kw.lower() for kw in filters.get("keywords", []) if kw.strip()]
+    location_prefs = [lp.lower() for lp in filters.get("location_preferences", []) if lp.strip()]
+
     filtered: list[Job] = []
     for job in jobs:
         if job.id in already_applied:
@@ -285,6 +288,21 @@ def scrape_jobs(
         excluded = filters.get("excluded_industries", [])
         if excluded and job.company.industry in excluded:
             continue
+
+        # Keyword filter: job title, description, or requirements must contain at least one keyword
+        if keywords:
+            searchable = " ".join([job.title, job.description, job.requirements]).lower()
+            if not any(kw in searchable for kw in keywords):
+                logger.debug("Skipping job (no keyword match): %s", job.title)
+                continue
+
+        # Location filter: job location must match a preference, unless the job is remote
+        if location_prefs and not job.remote:
+            job_location = job.location.lower()
+            if not any(pref in job_location for pref in location_prefs):
+                logger.debug("Skipping job (location mismatch): %s — %s", job.title, job.location)
+                continue
+
         filtered.append(job)
         if len(filtered) >= max_jobs:
             break
