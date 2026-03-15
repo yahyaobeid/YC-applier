@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# YC-applier project-specific
+data/browser_session/
+resume/resume.pdf
+data/applied_jobs.json

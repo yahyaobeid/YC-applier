@@ -1,0 +1,17 @@
+filters:
+  roles: ["Full Stack", "Backend", "ML"]
+  remote_only: true
+  excluded_industries: []
+
+matching:
+  min_match_score: 70        # skip jobs below this
+  max_jobs_per_run: 30
+
+behavior:
+  review_mode: true          # pause for human approval
+  auto_apply_above_score: 90 # auto-submit if score >= this (even in review_mode)
+  application_delay_seconds: 30
+
+paths:
+  resume: "resume/resume.pdf"
+  applied_log: "data/applied_jobs.json"
