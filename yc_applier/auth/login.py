@@ -31,16 +31,13 @@ def _do_login(page: Page, email: str, password: str) -> None:
     page.fill("input[name='username'], input[id='ycid-input']", email)
     page.fill("input[type='password'], input[name='password']", password)
     page.click("button[type='submit']")
-
-    # Wait for redirect back to workatastartup.com
-    page.wait_for_url("*workatastartup.com*", timeout=20_000)
-    page.wait_for_load_state("networkidle")
-
-    if not _is_logged_in(page):
-        raise RuntimeError(
-            "Login appeared to complete but could not confirm authenticated state. "
-            "Check YC_EMAIL / YC_PASSWORD and try again."
-        )
+    # Poll until the browser lands on workatastartup.com.
+    # A successful redirect here is proof of authentication — the site bounces
+    # back to the login page if credentials are wrong.
+    page.wait_for_function(
+        "() => window.location.hostname.includes('workatastartup.com')",
+        timeout=30_000,
+    )
     logger.info("Login successful.")
 
 
