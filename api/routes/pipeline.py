@@ -54,7 +54,7 @@ def _run_scoring_sync(jobs, resume_text, min_score, api_key, provider):
         loop.close()
 
 
-def _run_pipeline_sync(config, email, password, api_key, ai_provider, push_event):
+def _run_pipeline_sync(config, email, password, api_key, ai_provider, push_event, headless=True):
     """Phase 1: scrape + score + draft. Runs in a thread."""
     from playwright.sync_api import sync_playwright
     from yc_applier.auth.login import get_authenticated_context
@@ -77,13 +77,15 @@ def _run_pipeline_sync(config, email, password, api_key, ai_provider, push_event
 
     push_event("progress", "Launching browser for scraping...")
     with sync_playwright() as pw:
-        context = get_authenticated_context(pw, email, password, session_dir)
+        context = get_authenticated_context(pw, email, password, session_dir, headless=headless)
         push_event("progress", "Authenticated. Scraping jobs...")
         jobs = scrape_jobs(
             context=context,
             filters=config["filters"],
             already_applied=applied_ids,
             max_jobs=config["matching"]["max_jobs_per_run"],
+            api_key=api_key,
+            ai_provider=ai_provider,
         )
         context.close()
 
@@ -110,7 +112,7 @@ def _run_pipeline_sync(config, email, password, api_key, ai_provider, push_event
     return drafts
 
 
-def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event):
+def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event, headless=True):
     """Phase 2: submit approved drafts. Runs in a thread."""
     from datetime import datetime
     from playwright.sync_api import sync_playwright
@@ -156,13 +158,14 @@ def _run_submit_sync(approved_drafts_data, dry_run, email, password, push_event)
 
     push_event("progress", f"Submitting {len(draft_tuples)} application(s)...")
     with sync_playwright() as pw:
-        context = get_authenticated_context(pw, email, password, session_dir)
+        context = get_authenticated_context(pw, email, password, session_dir, headless=headless)
         submit_applications(
             drafts=draft_tuples,
             context=context,
             tracker=tracker,
             delay_seconds=cfg["behavior"]["application_delay_seconds"],
             dry_run=dry_run,
+            push_event=push_event,
         )
         context.close()
 
@@ -191,6 +194,8 @@ async def start_pipeline(req: StartPipelineRequest):
         pipeline_state.progress = []
         pipeline_state.drafts = []
         pipeline_state.error = None
+    # Clear any persisted drafts from a previous run that wasn't submitted
+    pipeline_state.clear_persisted_drafts()
 
     config = _load_settings()
     # Apply runtime overrides for filters
@@ -201,21 +206,26 @@ async def start_pipeline(req: StartPipelineRequest):
 
     email = os.environ.get("YC_EMAIL", "")
     password = os.environ.get("YC_PASSWORD", "")
-    api_key = (
-        os.environ.get("OPENAI_API_KEY", "")
-        if req.ai_provider == "openai"
-        else os.environ.get("ANTHROPIC_API_KEY", "")
-    )
+    if req.ai_provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+    elif req.ai_provider == "gemini":
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+    else:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    headless = config.get("behavior", {}).get("headless", True)
 
     def run():
         try:
             drafts = _run_pipeline_sync(
                 config, email, password, api_key, req.ai_provider,
-                pipeline_state.push_event,
+                pipeline_state.push_event, headless=headless,
             )
             with pipeline_state._lock:
                 pipeline_state.drafts = [_draft_to_dict(d) for d in drafts]
                 pipeline_state.status = "awaiting_review" if drafts else "complete"
+            if drafts:
+                pipeline_state.save_drafts()
             msg = (
                 f"Pipeline complete — {len(drafts)} drafts ready for review"
                 if drafts else "Pipeline complete — no drafts generated"
@@ -239,19 +249,29 @@ async def submit_pipeline(req: SubmitRequest):
         approved = [d for d in pipeline_state.drafts if d.get("status") == "approved"]
         if not approved:
             raise HTTPException(status_code=400, detail="No approved drafts to submit")
+        missing_info = [d["company_name"] for d in approved if not d.get("user_name") or not d.get("user_linkedin")]
+        if missing_info:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing name/LinkedIn on {len(missing_info)} draft(s). Please re-approve after filling in Your Info.",
+            )
         pipeline_state.status = "submitting"
 
     email = os.environ.get("YC_EMAIL", "")
     password = os.environ.get("YC_PASSWORD", "")
 
+    cfg_for_submit = _load_settings()
+    headless_submit = cfg_for_submit.get("behavior", {}).get("headless", True)
+
     def run():
         try:
-            _run_submit_sync(approved, req.dry_run, email, password, pipeline_state.push_event)
+            _run_submit_sync(approved, req.dry_run, email, password, pipeline_state.push_event, headless=headless_submit)
             with pipeline_state._lock:
                 for d in pipeline_state.drafts:
                     if d.get("status") == "approved":
                         d["status"] = "submitted"
                 pipeline_state.status = "complete"
+            pipeline_state.clear_persisted_drafts()
             pipeline_state.push_event("status_change", "All applications submitted!")
         except Exception as exc:
             with pipeline_state._lock:
@@ -261,6 +281,15 @@ async def submit_pipeline(req: SubmitRequest):
 
     threading.Thread(target=run, daemon=True).start()
     return {"status": "submitting"}
+
+
+@router.post("/reset")
+def reset_pipeline():
+    with pipeline_state._lock:
+        if pipeline_state.status in ("running", "submitting"):
+            raise HTTPException(status_code=400, detail="Cannot reset while pipeline is running")
+    pipeline_state.reset()
+    return {"status": "idle"}
 
 
 @router.get("/status")

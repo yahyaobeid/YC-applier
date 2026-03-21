@@ -1,19 +1,21 @@
-filters:
-  roles: ["Full Stack", "Backend", "ML"]
-  remote_only: true
-  excluded_industries: []
-  location_preferences: []   # e.g. ["San Francisco", "New York"] — empty means any location
-  keywords: []               # e.g. ["React", "Python", "ML"] — empty means no keyword filter
-
-matching:
-  min_match_score: 70        # skip jobs below this
-  max_jobs_per_run: 30
-
 behavior:
-  review_mode: true          # pause for human approval
-  auto_apply_above_score: 90 # auto-submit if score >= this (even in review_mode)
   application_delay_seconds: 30
-
+  auto_apply_above_score: 100
+  review_mode: true
+  headless: false
+filters:
+  excluded_industries: []
+  keywords:
+  - Engineer
+  location_preferences: []
+  remote_only: false
+  roles:
+  - Full Stack
+  - Backend
+  - ML
+matching:
+  max_jobs_per_run: 30
+  min_match_score: 70
 paths:
-  resume: "resume/resume.pdf"
-  applied_log: "data/applied_jobs.json"
+  applied_log: data/applied_jobs.json
+  resume: resume/resume.pdf
